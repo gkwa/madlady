@@ -1,173 +1,185 @@
 package main
 
 import (
-	"bufio"
-	"embed"
+	"archive/tar"
 	"flag"
 	"fmt"
-	"io/fs"
-	"log"
 	"os"
+	"os/user"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
 )
 
-var (
-	ignoreMode    bool
-	ignoreOwner   bool
-	ignoreSize    bool
-	ignoreTime    bool
-	ignoreDate    bool
-	ignoreRemain  bool
-	templateFile  string
-	debugMode     bool
-	listTemplates bool
-)
+const templateStr = `
+{{- .ModeStr }} {{ .UIDName }}/{{ .GIDName }}  {{ .Size | printf "%8d" }}{{ if .ShowTimestamp }} {{ .MTime }}{{ end }} {{ .Name }}
+`
 
-//go:embed templates/out2.tmpl
-//go:embed templates/out1.tmpl
-var templates embed.FS
+type TarEntry struct {
+	ModeStr       string
+	UIDName       string
+	GIDName       string
+	Size          int64
+	MTime         string
+	Name          string
+	ShowTimestamp bool // New field to control timestamp visibility
+}
 
-func main() {
-	flag.BoolVar(&ignoreMode, "no-mode", false, "Ignore the mode field")
-	flag.BoolVar(&ignoreOwner, "no-owner", false, "Ignore the owner field")
-	flag.BoolVar(&ignoreSize, "no-size", false, "Ignore the size field")
-	flag.BoolVar(&ignoreTime, "no-time", false, "Ignore the time field")
-	flag.BoolVar(&ignoreDate, "no-date", false, "Ignore the date field")
-	flag.BoolVar(&ignoreRemain, "no-remain", false, "Ignore the remaining field")
-	flag.BoolVar(&debugMode, "debug", false, "Enable debug mode")
-	flag.BoolVar(&listTemplates, "list-templates", false, "List all templates")
-	flag.StringVar(&templateFile, "template", "out1", "Path to a template file for output")
-
-	flag.Parse()
-
-	if listTemplates {
-		list, err := getAllFilenames(&templates)
-		if err != nil {
-			log.Fatal(err)
+func convertBytesToStr(data interface{}) interface{} {
+	switch v := data.(type) {
+	case []byte:
+		return string(v)
+	case map[interface{}]interface{}:
+		result := make(map[string]interface{})
+		for key, value := range v {
+			result[convertBytesToStr(key).(string)] = convertBytesToStr(value)
 		}
-
-		for _, v := range list {
-			fmt.Println(v)
+		return result
+	case []interface{}:
+		result := make([]interface{}, len(v))
+		for i, item := range v {
+			result[i] = convertBytesToStr(item)
 		}
-		os.Exit(0)
-	}
-
-	scanner := bufio.NewScanner(os.Stdin)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		// Check for EOF
-		if line == "" {
-			break
-		}
-
-		fields := strings.Fields(line)
-		if len(fields) < 6 {
-			fmt.Println("Invalid input line:", line)
-			continue
-		}
-
-		mode := fields[0]
-		owner := fields[1]
-
-		// Convert the size field from string to integer
-		sizeStr := fields[2]
-		sizeInt, err := strconv.Atoi(sizeStr)
-		if err != nil {
-			fmt.Println("Error converting size to int:", err)
-			continue
-		}
-
-		date := fields[3]
-		timeValue := fields[4]
-		remaining := strings.Join(fields[5:], " ")
-
-		dateTimeStr := fmt.Sprintf("%s %s", date, timeValue)
-		timeStamp, err := time.Parse("2006-01-02 15:04", dateTimeStr)
-		if err != nil {
-			fmt.Println("Error parsing timeStamp:", err)
-			continue
-		}
-
-		if debugMode {
-			log.Printf("Parsing mode field: %s", mode)
-			log.Printf("Parsing owner field: %s", owner)
-			log.Printf("Parsing size field: %s", sizeStr)
-			log.Printf("Parsing date field: %s", date)
-			log.Printf("Parsing time field: %s", timeValue)
-			log.Printf("Parsing remaining field: %s", remaining)
-		}
-
-		tpl := fmt.Sprintf("templates/%s.tmpl", templateFile)
-
-		tmplBytes, _ := templates.ReadFile(tpl)
-
-		// Define a custom template function to repeat a string
-		funcMap := template.FuncMap{
-			"repeat": strings.Repeat,
-		}
-
-		// Parse the template
-		tmpl, err := template.New("output").Funcs(funcMap).Parse(string(tmplBytes))
-		if err != nil {
-			fmt.Println("Error parsing template:", err)
-			continue
-		}
-
-		// Data for the template
-		data := struct {
-			IgnoreMode   bool
-			IgnoreOwner  bool
-			IgnoreSize   bool
-			IgnoreTime   bool
-			IgnoreRemain bool
-			Mode         string
-			Owner        string
-			Size         int
-			TimeStamp    time.Time
-			Remaining    string
-		}{
-			IgnoreMode:   ignoreMode,
-			IgnoreOwner:  ignoreOwner,
-			IgnoreSize:   ignoreSize,
-			IgnoreTime:   ignoreTime,
-			IgnoreRemain: ignoreRemain,
-			Mode:         mode,
-			Owner:        owner,
-			Size:         sizeInt, // Use the converted integer value
-			TimeStamp:    timeStamp,
-			Remaining:    remaining,
-		}
-
-		// Execute the template
-		err = tmpl.Execute(os.Stdout, data)
-		if err != nil {
-			fmt.Println("Error executing template:", err)
-			continue
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		fmt.Println("Error reading input:", err)
+		return result
+	default:
+		return data
 	}
 }
 
-func getAllFilenames(efs *embed.FS) (files []string, err error) {
-	if err := fs.WalkDir(efs, ".", func(path string, d fs.DirEntry, err error) error {
-		if d.IsDir() {
-			return nil
-		}
+func modeToStr(mode os.FileMode) string {
+	permStr := ""
+	permStr += "d" // Directory indicator
+	permStr += "r" // Owner readable
+	permStr += "w" // Owner writable
+	permStr += "x" // Owner executable
+	permStr += "r" // Group readable
+	permStr += "w" // Group writable
+	permStr += "x" // Group executable
+	permStr += "r" // Others readable
+	permStr += "w" // Others writable
+	permStr += "x" // Others executable
 
-		files = append(files, path)
-
-		return nil
-	}); err != nil {
-		return nil, err
+	// Check each permission bit and set the appropriate character
+	if mode&os.ModeDir == 0 {
+		permStr = strings.Replace(permStr, "d", "-", 1)
+	}
+	if mode&os.FileMode(0400) == 0 {
+		permStr = strings.Replace(permStr, "r", "-", 2)
+	}
+	if mode&os.FileMode(0200) == 0 {
+		permStr = strings.Replace(permStr, "w", "-", 2)
+	}
+	if mode&os.FileMode(0100) == 0 {
+		permStr = strings.Replace(permStr, "x", "-", 2)
+	}
+	if mode&os.FileMode(0040) == 0 {
+		permStr = strings.Replace(permStr, "r", "-", 5)
+	}
+	if mode&os.FileMode(0020) == 0 {
+		permStr = strings.Replace(permStr, "w", "-", 5)
+	}
+	if mode&os.FileMode(0010) == 0 {
+		permStr = strings.Replace(permStr, "x", "-", 5)
+	}
+	if mode&os.FileMode(0004) == 0 {
+		permStr = strings.Replace(permStr, "r", "-", 8)
+	}
+	if mode&os.FileMode(0002) == 0 {
+		permStr = strings.Replace(permStr, "w", "-", 8)
+	}
+	if mode&os.FileMode(0001) == 0 {
+		permStr = strings.Replace(permStr, "x", "-", 8)
 	}
 
-	return files, nil
+	return permStr
+}
+
+func formatDatetime(timestamp int64) string {
+	return time.Unix(timestamp, 0).UTC().Format("2006-01-02 15:04")
+}
+
+func getUsername(uid int) string {
+	user, err := user.LookupId(strconv.Itoa(uid))
+	if err == nil {
+		return user.Username
+	}
+	return strconv.Itoa(uid)
+}
+
+func getGroupname(gid int) string {
+	group, err := user.LookupGroupId(strconv.Itoa(gid))
+	if err == nil {
+		return group.Name
+	}
+	return strconv.Itoa(gid)
+}
+
+func parseTarToTemplate(tarFilename string, showTimestamp bool) (string, error) {
+	tarFile, err := os.Open(tarFilename)
+	if err != nil {
+		return "", err
+	}
+	defer tarFile.Close()
+
+	tarReader := tar.NewReader(tarFile)
+	tarEntries := []TarEntry{}
+
+	for {
+		header, err := tarReader.Next()
+		if err != nil {
+			break
+		}
+
+		fileInfo := TarEntry{
+			ModeStr: modeToStr(header.FileInfo().Mode()),
+			UIDName: getUsername(int(header.Uid)),
+			GIDName: getGroupname(int(header.Gid)),
+			Size:    header.Size,
+			Name:    convertBytesToStr(header.Name).(string),
+			ShowTimestamp: showTimestamp,
+		}
+
+		if showTimestamp {
+			fileInfo.MTime = formatDatetime(header.ModTime.Unix())
+		}
+
+		tarEntries = append(tarEntries, fileInfo)
+	}
+
+	tmpl, err := template.New("entry").Parse(templateStr)
+	if err != nil {
+		return "", err
+	}
+
+	var output strings.Builder
+	for _, entry := range tarEntries {
+		err = tmpl.Execute(&output, entry)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	return output.String(), nil
+}
+
+
+func main() {
+	tarPath := flag.String("path", "", "Path to the tar file")
+	hideTimestamp := flag.Bool("timestamp", false, "Exclude timestamp from the output")
+
+	flag.Parse()
+
+	if *tarPath == "" {
+		fmt.Println("Please provide a valid path to the tar file.")
+		return
+	}
+
+	templateOutput, err := parseTarToTemplate(*tarPath, *hideTimestamp)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	fmt.Println(templateOutput)
 }

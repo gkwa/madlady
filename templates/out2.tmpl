@@ -1,0 +1,7 @@
+{{- if not (and .IgnoreMode .IgnoreOwner .IgnoreSize .IgnoreTime .IgnoreRemain) -}}
+  {{- if not .IgnoreMode -}}{{.Mode}} {{ end -}}
+  {{- if not .IgnoreOwner -}}{{.Owner}} {{ end -}}
+  {{- if not .IgnoreSize -}}{{.Size}} {{ end -}}
+  {{- if not .IgnoreTime -}}{{.TimeStamp.Format "2006-01-02 15:04"}} {{ end -}}
+  {{- if not .IgnoreRemain -}}{{.Remaining}} {{ end -}}
+{{- end }}
