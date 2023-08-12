@@ -64,31 +64,31 @@ func modeToStr(mode os.FileMode) string {
 	if mode&os.ModeDir == 0 {
 		permStr = strings.Replace(permStr, "d", "-", 1)
 	}
-	if mode&os.FileMode(0400) == 0 {
+	if mode&os.FileMode(0o400) == 0 {
 		permStr = strings.Replace(permStr, "r", "-", 2)
 	}
-	if mode&os.FileMode(0200) == 0 {
+	if mode&os.FileMode(0o200) == 0 {
 		permStr = strings.Replace(permStr, "w", "-", 2)
 	}
-	if mode&os.FileMode(0100) == 0 {
+	if mode&os.FileMode(0o100) == 0 {
 		permStr = strings.Replace(permStr, "x", "-", 2)
 	}
-	if mode&os.FileMode(0040) == 0 {
+	if mode&os.FileMode(0o040) == 0 {
 		permStr = strings.Replace(permStr, "r", "-", 5)
 	}
-	if mode&os.FileMode(0020) == 0 {
+	if mode&os.FileMode(0o020) == 0 {
 		permStr = strings.Replace(permStr, "w", "-", 5)
 	}
-	if mode&os.FileMode(0010) == 0 {
+	if mode&os.FileMode(0o010) == 0 {
 		permStr = strings.Replace(permStr, "x", "-", 5)
 	}
-	if mode&os.FileMode(0004) == 0 {
+	if mode&os.FileMode(0o004) == 0 {
 		permStr = strings.Replace(permStr, "r", "-", 8)
 	}
-	if mode&os.FileMode(0002) == 0 {
+	if mode&os.FileMode(0o002) == 0 {
 		permStr = strings.Replace(permStr, "w", "-", 8)
 	}
-	if mode&os.FileMode(0001) == 0 {
+	if mode&os.FileMode(0o001) == 0 {
 		permStr = strings.Replace(permStr, "x", "-", 8)
 	}
 
@@ -132,11 +132,11 @@ func parseTarToTemplate(tarFilename string, showTimestamp bool) (string, error) 
 		}
 
 		fileInfo := TarEntry{
-			ModeStr: modeToStr(header.FileInfo().Mode()),
-			UIDName: getUsername(int(header.Uid)),
-			GIDName: getGroupname(int(header.Gid)),
-			Size:    header.Size,
-			Name:    convertBytesToStr(header.Name).(string),
+			ModeStr:       modeToStr(header.FileInfo().Mode()),
+			UIDName:       getUsername(int(header.Uid)),
+			GIDName:       getGroupname(int(header.Gid)),
+			Size:          header.Size,
+			Name:          convertBytesToStr(header.Name).(string),
 			ShowTimestamp: showTimestamp,
 		}
 
@@ -162,7 +162,6 @@ func parseTarToTemplate(tarFilename string, showTimestamp bool) (string, error) 
 
 	return output.String(), nil
 }
-
 
 func main() {
 	tarPath := flag.String("path", "", "Path to the tar file")
